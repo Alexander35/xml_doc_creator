@@ -1,0 +1,98 @@
+### BUILDS
+x-build-nginx:
+  &build-nginx
+  context: .
+  dockerfile: provision/docker/dockerfile.nginx
+
+x-build-backend:
+  &build-backend
+  context: .
+  dockerfile: provision/docker/dockerfile.backend
+
+
+### SERVICES
+services:
+
+  # Build Images
+  nginx-build:
+    build:
+      << : *build-nginx
+    image: aleksandrivanov35/xml-doc-creator-nginx:0.0.1
+
+  backend-build:
+    build:
+      << : *build-backend
+    image: aleksandrivanov35/xml-doc-creator-backend:0.0.1
+
+  # Start Services
+  nginx:
+    image: aleksandrivanov35/xml-doc-creator-nginx:0.0.1
+    container_name: nginx
+    hostname: nginx
+    restart: always
+    depends_on:
+      - backend
+    networks:
+      - xmldoccreatornetwork
+    ports:
+      - 443:443
+      - 80:80
+
+  backend:
+    image: aleksandrivanov35/xml-doc-creator-backend:0.0.1
+    container_name: backend
+    hostname: backend
+    volumes:
+      - ./filestorage:/xml_doc_creator_nginx_docker/filestorage/
+      - ./logs:/logs
+    networks:
+      - xmldoccreatornetwork
+    depends_on:
+      - migration
+    ports:
+      - 3000:3000
+
+  migration:
+    image: aleksandrivanov35/xml-doc-creator-backend:0.0.1
+    container_name: migration
+    hostname: migration
+    env_file:
+      - ./conf/.env
+    networks:
+      - xmldoccreatornetwork
+    depends_on:
+      - postgres
+    command: [
+      "/tmp/database.sh"
+    ]
+
+  postgres:
+    image: postgres:15
+    container_name: postgres
+    hostname: postgres
+    env_file:
+      - ./conf/.env
+    volumes:
+      - ./postgres_data_db:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d
+    networks:
+      - xmldoccreatornetwork
+#TODO: the port is only used in local machine
+    ports:
+      - 5432:5432
+#####################
+
+
+### NETWORKING
+networks:
+  xmldoccreatornetwork:
+    name: xmldoccreatornetwork
+#####################
+
+
+### VOLUMES
+volumes:
+  postgres-data:
+    name: xml-doc-creator-postgres
+
+#####################

@@ -1,0 +1,5 @@
+filestorage
+logs
+postgres_data
+postgres_data_db
+.idea

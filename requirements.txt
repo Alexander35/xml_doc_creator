@@ -1,0 +1,12 @@
+fastapi[all]
+fastapi-users[sqlalchemy]
+uvicorn[standard]
+gunicorn
+alembic
+psycopg2
+asyncpg
+pydantic-settings
+SQLAlchemy
+xmlschema
+lxml
+
