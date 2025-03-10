@@ -1,10 +1,17 @@
 #!/bin/bash
 
-export PGPASS=$POSTGRES_PASSWORD
-export PGUSER=$POSTGRES_POSTGRES_USER
+echo "Waiting for PostgreSQL..."
 
-#export PGPASSWORD=$POSTGRES_PASSWORD; psql -h postgres -U postgres_user -d express_accounting -c "CREATE DATABASE ...;"
+export $(grep -v '^#' /conf/.env | xargs)
+
+until pg_isready -h postgres -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do
+  echo "PostgreSQL is unavailable - try to reconnect in  in 3 sec..."
+  sleep 3
+done
+
+echo "PostgreSQL is ready!"
+echo "Running migrations..."
 
 alembic upgrade head
 
-echo ALL Migrations are complete
+echo "All Migrations are complete!"
