@@ -1,14 +1,12 @@
-import logging
 import os
 import re
-import time
 from datetime import datetime
 import xmlschema
 from fastapi import HTTPException
 from lxml import etree
-from sqlalchemy import Integer, Column, String, DateTime, ForeignKey, Float, Enum, CheckConstraint, Boolean
+from sqlalchemy import Integer, Column, String, Enum, Boolean
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import relationship, validates
+from sqlalchemy.orm import validates
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -70,7 +68,7 @@ class DocumentModel(Base, GeneralMixin):
         root = etree.Element('{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}REMITTable2', nsmap=namespaces)
 
         reporting_entity = etree.SubElement(root, "{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}reportingEntityID")
-        etree.SubElement(reporting_entity, f'{{{"http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd"}}}{self.reportingEntityIdType}').text = self.reportingEntityId
+        etree.SubElement(reporting_entity, f'{{{"http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd"}}}{self.reportingEntityIdType.value}').text = self.reportingEntityId
 
         trade_list = etree.SubElement(root, "{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}TradeList")
 
@@ -78,13 +76,13 @@ class DocumentModel(Base, GeneralMixin):
         etree.SubElement(report, "{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}RecordSeqNumber").text = str(self.recordSeqNumber)
 
         market_participant = etree.SubElement(report, "{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}idOfMarketParticipant")
-        etree.SubElement(market_participant, f'{{{"http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd"}}}{self.idOfMarketParticipantType}').text = self.idOfMarketParticipant
+        etree.SubElement(market_participant, f'{{{"http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd"}}}{self.idOfMarketParticipantType.value}').text = self.idOfMarketParticipant
 
         other_market_participant = etree.SubElement(report, "{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}otherMarketParticipant")
-        etree.SubElement(other_market_participant,f'{{{"http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd"}}}{self.otherMarketParticipantType}').text = self.otherMarketParticipant
+        etree.SubElement(other_market_participant,f'{{{"http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd"}}}{self.otherMarketParticipantType.value}').text = self.otherMarketParticipant
 
-        etree.SubElement(report, "{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}tradingCapacity").text = self.tradingCapacity
-        etree.SubElement(report, "{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}buySellIndicator").text = self.buySellIndicator
+        etree.SubElement(report, "{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}tradingCapacity").text = str(self.tradingCapacity.value)
+        etree.SubElement(report, "{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}buySellIndicator").text = str(self.buySellIndicator.value)
         etree.SubElement(report, "{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}contractId").text = self.contractId
         etree.SubElement(report, "{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}contractDate").text = datetime.now().strftime("%Y-%m-%d")
         etree.SubElement(report, "{http://www.acer.europa.eu/REMIT/REMITTable2_V1.xsd}contractType").text = "FW"
@@ -128,8 +126,6 @@ class DocumentModel(Base, GeneralMixin):
         tree.write(full_path, pretty_print=True, xml_declaration=True, encoding="UTF-8")
 
 
-
-
     @staticmethod
     async def create(db: AsyncSession, document_data: DocumentCreateSchema):
 
@@ -143,7 +139,6 @@ class DocumentModel(Base, GeneralMixin):
             now = datetime.now()
             document.xmlFileName=f'{now.strftime("%d_%m_%Y_%H_%M")}_REMITTable2_V1_1.xml'
             db.add(document)
-            document.generate_xml()
 
         document_data_dict = document_data.model_dump()
 
@@ -152,22 +147,23 @@ class DocumentModel(Base, GeneralMixin):
             if document:
                 create_update_doc(document)
             else:
-                raise HTTPException(status_code=404, detail="Document not found for update")
+                raise Exception("Document not found for update")
         else:
             try:
                 document = DocumentModel()
                 create_update_doc(document)
             except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"An unexpected error occurred. {e}")
+                logger.error(f'Create Document error: {e}')
+                raise ValueError(str(e))
         try:
             await db.commit()
             await db.refresh(document)
+
+            document.generate_xml()
             return document
         except IntegrityError:
             await db.rollback()
-            raise HTTPException(status_code=400, detail="Duplicate record or integrity constraint failed.")
+            raise Exception("Duplicate record or integrity constraint failed.")
 
 
     @staticmethod
@@ -201,7 +197,7 @@ class DocumentModel(Base, GeneralMixin):
 
     def _validate_ace(self, value):
         if len(value) != 12:
-            logger.error(f"value be 12 characters long for 'ace' type,  value: {value}")
+            logger.error(f"value must be 12 characters long for 'ace' type,  value: {value}")
             raise ValueError("value be 12 characters long for 'ace' type")
         if not re.match(r"^[A-Za-z0-9_]+\.[A-Z][A-Z]$", value):
             logger.error(f"value pattern'[A-Za-z0-9_]+\\.[A-Z][A-Z]' for 'ace' type value: {value}")
@@ -209,7 +205,7 @@ class DocumentModel(Base, GeneralMixin):
 
     def _validate_bic(self, value):
         if len(value) != 11:
-            logger.error(f"value be 11 characters long for 'BIC' type,  value: {value}")
+            logger.error(f"value must be 11 characters long for 'BIC' type,  value: {value}")
             raise ValueError("value be 11 characters long for 'BIC' type")
         if not re.match(r"^[A-Za-z0-9_]+$", value):
             logger.error(f"value pattern '[A-Za-z0-9_]+' for 'BIC' type,  value: {value}")
@@ -217,7 +213,7 @@ class DocumentModel(Base, GeneralMixin):
 
     def _validate_lei(self, value):
         if len(value) != 20:
-            logger.error(f"value be 20 characters long for 'LEI' type,  value: {value}")
+            logger.error(f"value must be 20 characters long for 'LEI' type,  value: {value}")
             raise ValueError("value be 20 characters long for 'LEI' type")
         if not re.match(r"^[A-Za-z0-9_]+$", value):
             logger.error(f"value pattern '[A-Za-z0-9_]+' for 'LEI' type,  value: {value}")
@@ -225,7 +221,7 @@ class DocumentModel(Base, GeneralMixin):
 
     def _validate_eic(self, value):
         if len(value) != 16:
-            logger.error(f"value be 16 characters long for 'EIC' type,  value: {value}")
+            logger.error(f"value must be 16 characters long for 'EIC' type,  value: {value}")
             raise ValueError("value be 16 characters long for 'EIC' type")
         if not re.match(r"^[0-9][0-9][XYZTWV].+$", value):
             logger.error(f"value pattern '[0-9][0-9][XYZTWV].+' for 'EIC' type,  value: {value}")
@@ -233,7 +229,7 @@ class DocumentModel(Base, GeneralMixin):
 
     def _validate_gln(self, value):
         if len(value) != 13:
-            logger.error(f"value be 13 characters long for 'GLN' type,  value: {value}")
+            logger.error(f"value must be 13 characters long for 'GLN' type,  value: {value}")
             raise ValueError("value be 13 characters long for 'GLN' type")
         if not re.match(r"^[A-Za-z0-9_]+$", value):
             logger.error(f"value pattern '[A-Za-z0-9_]+' for 'GLN' type,  value: {value}")
@@ -286,7 +282,6 @@ class DocumentModel(Base, GeneralMixin):
 
     @validates("recordSeqNumber")
     def validate_record_seq_number(self, key, value):
-        logger.error(f'VALIDATOR record seq {key, value, type(key), type(value)}')
         if value < 1:
             logger.error(f"recordSeqNumber must be >1,  value: {value}")
             raise ValueError("recordSeqNumber must be >1")

@@ -1,10 +1,9 @@
-import logging
 import os
 
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Body, Request, Form
+from fastapi import APIRouter, Depends, HTTPException, Request
 from config import settings
 from helpers.db import get_async_session
-from sqlalchemy.orm import Session
+from pydantic import ValidationError
 from starlette.responses import RedirectResponse, FileResponse
 from starlette.status import HTTP_303_SEE_OTHER
 
@@ -12,6 +11,8 @@ from . import templates
 from models import DocumentModel
 from schemas import DocumentCreateSchema
 from schemas import EntityIdType, TradingCapacityType, BuySellIndicatorType
+
+from config import logger
 
 documents_router = APIRouter()
 
@@ -25,17 +26,14 @@ async def create_form(request: Request):
             "TradingCapacityType": TradingCapacityType,
             "BuySellIndicatorType": BuySellIndicatorType
         })
-    except ValueError as e:
-        error_message = str(e)
-        return templates.TemplateResponse("create_form.html", {"request": request, "error_message": error_message})
     except Exception as e:
-        return templates.TemplateResponse("create_form.html", {"request": request, "error_message": "An unexpected error occurred."})
+        return templates.TemplateResponse("create_form.html", {"request": request, "error_message": f"An unexpected error occurred. {e}"})
 
 @documents_router.get("/update-form/{document_id}")
 async def update_document(
         request: Request,
         document_id: int = None,
-        db: Session = Depends(get_async_session)
+        db = Depends(get_async_session)
 ):
 
     existing_document = await db.get(DocumentModel, document_id)
@@ -81,16 +79,29 @@ async def docs_list(
 async def new_doc(
         request: Request,
         db = Depends(get_async_session),
-        document_data: DocumentCreateSchema = Depends(DocumentCreateSchema.as_form),
 ):
+    form = await request.form()
+
     try:
+        document_data = DocumentCreateSchema(**form)
         await DocumentModel.create(db, document_data)
         return RedirectResponse(url="/documents/list", status_code=HTTP_303_SEE_OTHER)
+
+    except ValidationError as e:
+        error_messages = [f"{error['msg']}" for error in e.errors()]
+        return templates.TemplateResponse("create_form.html", {
+            "request": request,
+            "error_message": " :: ".join(error_messages),
+        })
     except ValueError as e:
         error_message = str(e)
         return templates.TemplateResponse("create_form.html", {"request": request, "error_message": error_message})
     except Exception as e:
-        return templates.TemplateResponse("create_form.html", {"request": request, "error_message": f"An unexpected error occurred. {e}"})
+        return templates.TemplateResponse("create_form.html", {
+            "request": request,
+            "error_message": f"An unexpected error occurred. {e}"
+        })
+
 
 @documents_router.get("/archive/{document_id}")
 async def archive_doc(
